@@ -1,4 +1,4 @@
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { type ErrorBoundaryProps } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GEMINI_API_KEY } from '../apiConfig';
-// --- TRANSLATIONS (BỘ TỪ ĐIỂN NGÔN NGỮ) ---
+
 type LangMode = 'en' | 'vi';
 
 const translations = {
@@ -34,20 +34,15 @@ const translations = {
     appTitle: 'AI Field Assistant',
     statusInitial: 'Frame the issue, then capture and describe it.',
     statusNoPhoto: 'Could not capture photo. Try again.',
-    statusNeedNote: 'Photo captured. Add a voice or text note to continue.',
+    statusNeedNote: 'Photo captured. Add a text note to continue.',
     statusCamFailed: 'Camera capture failed. Check permissions and try again.',
-    statusListening: 'Listening… describe the issue, then release.',
-    statusVoiceCaptured: 'Voice note captured.',
-    statusVoiceNeedPhoto: 'Voice note captured. Take a photo to continue.',
     statusTypeDesc: 'Type a short description of the issue first.',
     statusNoteSavedNeedPhoto: 'Note saved. Take a photo to continue.',
     placeholderText: 'Describe the issue…',
     btnUse: 'Use',
     btnTakePhoto: 'Take Photo',
-    btnHoldSpeak: 'Hold to Speak',
-    btnRecording: 'Recording…',
     btnTextInput: 'Text Input',
-    btnVoiceInput: 'Voice Input',
+    btnHistory: 'History',
     analyzingTitle: 'Analyzing capture',
     analyzingBody: 'Reviewing the photo and notes. Building a structured field report…',
     reportKicker: 'STRUCTURED REPORT',
@@ -61,7 +56,7 @@ const translations = {
     btnDiscard: 'Discard',
     btnSave: 'Save Report',
     alertSaveTitle: 'Report saved',
-    alertSaveBody: 'This session copy is stored locally. Cloud sync comes next.',
+    alertSaveBody: 'This report is stored locally on your device.',
     alertDiscardTitle: 'Discard report?',
     alertDiscardBody: 'The photo, notes, and draft fields will be cleared.',
     alertKeep: 'Keep editing',
@@ -77,20 +72,15 @@ const translations = {
     appTitle: 'Trợ lý Hiện trường',
     statusInitial: 'Đưa sự cố vào khung hình, chụp và mô tả nó.',
     statusNoPhoto: 'Không thể chụp ảnh. Vui lòng thử lại.',
-    statusNeedNote: 'Đã chụp ảnh. Thêm ghi chú giọng nói hoặc văn bản để tiếp tục.',
+    statusNeedNote: 'Đã chụp ảnh. Thêm văn bản mô tả để tiếp tục.',
     statusCamFailed: 'Lỗi chụp ảnh. Kiểm tra quyền truy cập và thử lại.',
-    statusListening: 'Đang nghe… mô tả sự cố, sau đó thả nút ra.',
-    statusVoiceCaptured: 'Đã ghi âm (Giả lập).',
-    statusVoiceNeedPhoto: 'Đã ghi âm. Vui lòng chụp ảnh để tiếp tục.',
     statusTypeDesc: 'Vui lòng nhập mô tả ngắn gọn về sự cố trước.',
     statusNoteSavedNeedPhoto: 'Đã lưu ghi chú. Vui lòng chụp ảnh để tiếp tục.',
     placeholderText: 'Mô tả sự cố…',
     btnUse: 'Dùng',
     btnTakePhoto: 'Chụp ảnh',
-    btnHoldSpeak: 'Giữ để nói',
-    btnRecording: 'Đang thu âm…',
     btnTextInput: 'Nhập Văn bản',
-    btnVoiceInput: 'Nhập Giọng nói',
+    btnHistory: 'Lịch sử',
     analyzingTitle: 'Đang phân tích AI',
     analyzingBody: 'Đang đánh giá ảnh và ghi chú. Đang tạo báo cáo hiện trường…',
     reportKicker: 'BÁO CÁO CẤU TRÚC',
@@ -104,38 +94,36 @@ const translations = {
     btnDiscard: 'Hủy bỏ',
     btnSave: 'Lưu báo cáo',
     alertSaveTitle: 'Đã lưu báo cáo',
-    alertSaveBody: 'Bản sao này được lưu cục bộ. Bạn có thể xem trong Lịch sử (sẽ phát triển sau).',
+    alertSaveBody: 'Báo cáo này đã được lưu vào bộ nhớ cục bộ trên thiết bị.',
     alertDiscardTitle: 'Hủy báo cáo?',
     alertDiscardBody: 'Ảnh, ghi chú và các trường bản nháp sẽ bị xóa sạch.',
     alertKeep: 'Tiếp tục sửa',
   }
 };
 
-type InputMode = 'voice' | 'text';
 type ScreenPhase = 'capture' | 'analyzing' | 'report';
 
 type FieldReport = {
+  id?: string;
   category: string;
   location: string;
   priority: string;
   issue: string;
   suggestedAction: string;
   summary: string;
+  photoUri?: string | null;
+  createdAt?: string;
 };
-
-// Văn bản giả lập khi thu âm
-const MOCK_TRANSCRIPT =
-  'Điều hòa ở khu vực lễ tân không hoạt động, khách đang phàn nàn là phòng rất nóng.';
 
 function buildMockReport(notes: string): FieldReport {
   const trimmed = notes.trim();
   return {
     category: 'Hỏng thiết bị',
-    location: 'Khu vực Lễ tân',
-    priority: 'Cao (High)',
-    issue: 'Điều hòa không hoạt động',
-    suggestedAction: 'Cử ngay nhân viên bảo trì đến kiểm tra hệ thống lạnh',
-    summary: trimmed ? `Trích xuất từ giọng nói: "${trimmed}"` : 'Đã chụp ảnh hiện trường.',
+    location: 'Khu vực hiện trường',
+    priority: 'Trung bình',
+    issue: trimmed || 'Sự cố thiết bị',
+    suggestedAction: 'Cử nhân sự đến kiểm tra',
+    summary: trimmed ? `Mô tả: "${trimmed}"` : 'Đã ghi nhận sự cố.',
   };
 }
 
@@ -163,28 +151,34 @@ export default function HomeScreen() {
   const t = translations[lang];
 
   const [phase, setPhase] = useState<ScreenPhase>('capture');
-  const [inputMode, setInputMode] = useState<InputMode>('voice');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const [textDraft, setTextDraft] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<FieldReport | null>(null);
   const [statusMessage, setStatusMessage] = useState(t.statusInitial);
+
+  // Quản lý Lịch sử & Chi tiết & Chọn xóa nhiều mục
+  const [history, setHistory] = useState<FieldReport[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<FieldReport | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isSelectMode, setIsSelectMode] = useState(false);
 
   const permissionsReady = cameraPermission != null;
   const permissionsGranted = cameraPermission?.granted === true;
 
   useEffect(() => {
     void requestCameraPermission();
+    loadHistory();
   }, [requestCameraPermission]);
 
   useEffect(() => {
-    if (phase === 'capture' && !photoUri && !notes && !isRecording) {
+    if (phase === 'capture' && !photoUri && !notes) {
         setStatusMessage(t.statusInitial);
     }
-  }, [lang, phase, photoUri, notes, isRecording, t]);
+  }, [lang, phase, photoUri, notes, t]);
 
   useEffect(() => {
     return () => {
@@ -194,12 +188,24 @@ export default function HomeScreen() {
     };
   }, []);
 
+  const loadHistory = async () => {
+    try {
+      const storedData = await AsyncStorage.getItem('@report_history');
+      if (storedData) {
+        setHistory(JSON.parse(storedData));
+      }
+    } catch (e) {
+      console.error("Lỗi tải lịch sử:", e);
+    }
+  };
+
   const clearAnalyzeTimer = () => {
     if (analyzeTimerRef.current) {
       clearTimeout(analyzeTimerRef.current);
       analyzeTimerRef.current = null;
     }
   };
+
   const beginAnalysis = useCallback(
     async (capturedUri: string, capturedNotes: string) => {
       if (!capturedUri || !capturedNotes.trim()) return;
@@ -225,7 +231,6 @@ export default function HomeScreen() {
           }
         `;
 
-        // Gọi trực tiếp API bằng HTTP request (Bypass lỗi thư viện)
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${GEMINI_API_KEY}`,
           {
@@ -244,7 +249,6 @@ export default function HomeScreen() {
         const result = await response.json();
         let jsonText = result.candidates[0].content.parts[0].text || '';
         
-        // Xử lý chuỗi JSON trả về
         jsonText = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
         
         try {
@@ -264,6 +268,7 @@ export default function HomeScreen() {
     },
     [t]
   );
+
   const takePhoto = async () => {
     if (!cameraReady || busy || phase !== 'capture') return;
     try {
@@ -289,26 +294,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Giả lập quá trình thu âm
-  const startVoiceCapture = () => {
-    if (phase !== 'capture' || isRecording || busy) return;
-    setIsRecording(true);
-    setStatusMessage(t.statusListening);
-  };
-
-  const stopVoiceCapture = () => {
-    if (!isRecording) return;
-    setIsRecording(false);
-    setNotes(MOCK_TRANSCRIPT);
-    setStatusMessage(t.statusVoiceCaptured);
-    
-    if (photoUri) {
-      beginAnalysis(photoUri, MOCK_TRANSCRIPT);
-    } else {
-      setStatusMessage(t.statusVoiceNeedPhoto);
-    }
-  };
-
   const submitTextNote = () => {
     const nextNotes = textDraft.trim();
     if (!nextNotes) {
@@ -330,13 +315,63 @@ export default function HomeScreen() {
     setNotes('');
     setTextDraft('');
     setReport(null);
-    setIsRecording(false);
     setStatusMessage(t.statusInitial);
   };
 
-  const saveReport = () => {
-    Alert.alert(t.alertSaveTitle, t.alertSaveBody);
-    resetCapture();
+  const saveReport = async () => {
+    if (!report) return;
+    try {
+      const newReport = {
+        ...report,
+        id: Date.now().toString(),
+        photoUri: photoUri,
+        createdAt: new Date().toLocaleString('vi-VN'),
+      };
+      const updatedHistory = [newReport, ...history];
+      await AsyncStorage.setItem('@report_history', JSON.stringify(updatedHistory));
+      setHistory(updatedHistory);
+
+      Alert.alert(t.alertSaveTitle, t.alertSaveBody);
+      resetCapture();
+    } catch (e) {
+      Alert.alert("Lỗi", "Không thể lưu báo cáo vào bộ nhớ.");
+    }
+  };
+
+  // Hàm xóa một hoặc nhiều mục đã chọn trong lịch sử
+  const deleteSelectedReports = async () => {
+    if (selectedIds.length === 0) return;
+
+    Alert.alert(
+      "Xác nhận xóa",
+      `Bạn có chắc chắn muốn xóa ${selectedIds.length} báo cáo đã chọn không?`,
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Xóa",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const updatedHistory = history.filter(item => !selectedIds.includes(item.id!));
+              await AsyncStorage.setItem('@report_history', JSON.stringify(updatedHistory));
+              setHistory(updatedHistory);
+              setSelectedIds([]);
+              setIsSelectMode(false);
+            } catch (e) {
+              Alert.alert("Lỗi", "Không thể xóa báo cáo.");
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const toggleSelectReport = (id: string) => {
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter(item => item !== id));
+    } else {
+      setSelectedIds([...selectedIds, id]);
+    }
   };
 
   const discardReport = () => {
@@ -372,7 +407,10 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <StatusBar style="light" />
       {phase === 'capture' ? (
         <CameraView
@@ -387,19 +425,19 @@ export default function HomeScreen() {
 
       <View style={styles.scrim} pointerEvents="none" />
 
+      {/* TOP BAR */}
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <View>
           <Text style={styles.appKicker}>{t.fieldUtility}</Text>
           <Text style={styles.appTitle}>{t.appTitle}</Text>
         </View>
-        <View style={{flexDirection: 'row', gap: 10, alignItems: 'center'}}>
-             <Pressable style={styles.langToggleBtn} onPress={toggleLang}>
-                <Text style={styles.langToggleText}>{lang.toUpperCase()}</Text>
-             </Pressable>
-            <View style={styles.badge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.badgeLabel}>{isRecording ? 'REC' : 'LIVE'}</Text>
-            </View>
+        <View style={{flexDirection: 'row', gap: 8, alignItems: 'center'}}>
+           <Pressable style={styles.langToggleBtn} onPress={() => setShowHistory(true)}>
+              <Text style={styles.langToggleText}>{t.btnHistory} ({history.length})</Text>
+           </Pressable>
+           <Pressable style={styles.langToggleBtn} onPress={toggleLang}>
+              <Text style={styles.langToggleText}>{lang.toUpperCase()}</Text>
+           </Pressable>
         </View>
       </View>
 
@@ -407,30 +445,27 @@ export default function HomeScreen() {
         <Image source={{ uri: photoUri }} style={[styles.thumb, { top: insets.top + 64 }]} />
       ) : null}
 
+      {/* BOTTOM PANEL */}
       <View style={[styles.bottomPanel, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
         <Text style={styles.statusText}>{statusMessage}</Text>
 
-        {inputMode === 'text' ? (
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <View style={styles.textRow}>
-              <TextInput
-                value={textDraft}
-                onChangeText={setTextDraft}
-                placeholder={t.placeholderText}
-                placeholderTextColor="#8B97AB"
-                style={styles.textInput}
-                multiline
-                returnKeyType="done"
-                onSubmitEditing={submitTextNote}
-              />
-              <Pressable style={styles.submitChip} onPress={submitTextNote}>
-                <Text style={styles.submitChipLabel}>{t.btnUse}</Text>
-              </Pressable>
-            </View>
-          </KeyboardAvoidingView>
-        ) : null}
+        <View style={styles.textRow}>
+          <TextInput
+            value={textDraft}
+            onChangeText={setTextDraft}
+            placeholder={t.placeholderText}
+            placeholderTextColor="#8B97AB"
+            style={styles.textInput}
+            multiline
+            returnKeyType="done"
+            onSubmitEditing={submitTextNote}
+          />
+          <Pressable style={styles.submitChip} onPress={submitTextNote}>
+            <Text style={styles.submitChipLabel}>{t.btnUse}</Text>
+          </Pressable>
+        </View>
 
-        <View style={styles.controlsRow}>
+        <View style={styles.controlsRowCenter}>
           <Pressable
             accessibilityRole="button"
             onPress={() => void takePhoto()}
@@ -445,29 +480,165 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.shutterLabel}>{t.btnTakePhoto}</Text>
           </Pressable>
+        </View>
+      </View>
 
-          <Pressable
-            accessibilityRole="button"
-            onPressIn={startVoiceCapture}
-            onPressOut={stopVoiceCapture}
-            disabled={inputMode !== 'voice' || phase !== 'capture'}
-            style={({ pressed }) => [
-              styles.holdButton,
-              (pressed || isRecording) && styles.holdButtonActive,
-              inputMode !== 'voice' && styles.disabled,
-            ]}>
-            <Text style={styles.holdLabel}>{isRecording ? t.btnRecording : t.btnHoldSpeak}</Text>
+      {/* MODAL XEM DANH SÁCH LỊCH SỬ VÀ CHỌN XÓA */}
+      <Modal visible={showHistory} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: '#070B14', paddingTop: 60, paddingHorizontal: 20 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <Text style={{ fontSize: 24, fontWeight: '700', color: '#F4F7FB' }}>Lịch sử báo cáo</Text>
+            {history.length > 0 && (
+              <Pressable 
+                style={{ backgroundColor: isSelectMode ? '#3A4763' : '#151C2C', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#3A4763' }}
+                onPress={() => {
+                  setIsSelectMode(!isSelectMode);
+                  setSelectedIds([]);
+                }}
+              >
+                <Text style={{ color: '#F5C518', fontWeight: '700', fontSize: 13 }}>
+                  {isSelectMode ? 'Hủy chọn' : 'Chọn để xóa'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+
+          <ScrollView>
+            {history.length === 0 ? (
+              <Text style={{ fontSize: 15, color: '#8B97AB' }}>Chưa có báo cáo nào được lưu cục bộ.</Text>
+            ) : (
+              history.map((item: any, index) => {
+                const isSelected = selectedIds.includes(item.id);
+                return (
+                  <Pressable 
+                    key={index} 
+                    onPress={() => {
+                      if (isSelectMode) {
+                        toggleSelectReport(item.id);
+                      } else {
+                        setSelectedReport(item);
+                      }
+                    }}
+                    style={{ 
+                      backgroundColor: isSelected ? '#1E293B' : '#151C2C', 
+                      padding: 16, 
+                      borderRadius: 14, 
+                      marginBottom: 12, 
+                      borderWidth: 1, 
+                      borderColor: isSelected ? '#F5C518' : '#3A4763' 
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', fontSize: 17, color: '#F5C518', marginBottom: 6 }}>{item.category}</Text>
+                        <Text style={{ fontSize: 14, color: '#C5D0E0', marginBottom: 4 }}>📍 Vị trí: {item.location}</Text>
+                        <Text style={{ fontSize: 13, color: '#8B97AB', marginBottom: 6 }}>🕒 {item.createdAt || 'Gần đây'}</Text>
+                        <Text style={{ fontSize: 14, color: '#8B97AB', fontStyle: 'italic' }} numberOfLines={1}>"{item.issue}"</Text>
+                      </View>
+                      {isSelectMode && (
+                        <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#F5C518', backgroundColor: isSelected ? '#F5C518' : 'transparent', justifyContent: 'center', alignItems: 'center', marginLeft: 10 }}>
+                          {isSelected && <Text style={{ color: '#070B14', fontWeight: 'bold', fontSize: 12 }}>✓</Text>}
+                        </View>
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })
+            )}
+          </ScrollView>
+
+          {/* Thanh tác vụ khi ở chế độ chọn xóa */}
+          {isSelectMode && selectedIds.length > 0 && (
+            <Pressable 
+              style={{ backgroundColor: '#FF5A5F', padding: 16, borderRadius: 14, alignItems: 'center', marginVertical: 10 }} 
+              onPress={deleteSelectedReports}
+            >
+              <Text style={{ color: '#F4F7FB', fontSize: 16, fontWeight: '700' }}>Xóa ({selectedIds.length}) mục đã chọn</Text>
+            </Pressable>
+          )}
+
+          <Pressable 
+            style={{ backgroundColor: '#3A4763', padding: 16, borderRadius: 14, alignItems: 'center', marginVertical: 15 }} 
+            onPress={() => {
+              setShowHistory(false);
+              setIsSelectMode(false);
+              setSelectedIds([]);
+            }}
+          >
+            <Text style={{ color: '#F4F7FB', fontSize: 16, fontWeight: '700' }}>Đóng</Text>
           </Pressable>
         </View>
+      </Modal>
 
-        <Pressable
-          onPress={() => setInputMode((mode) => (mode === 'voice' ? 'text' : 'voice'))}
-          style={styles.textModeButton}>
-          <Text style={styles.textModeLabel}>
-            {inputMode === 'voice' ? t.btnTextInput : t.btnVoiceInput}
-          </Text>
-        </Pressable>
-      </View>
+      {/* MODAL XEM CHI TIẾT MỘT BÁO CÁO */}
+      <Modal visible={selectedReport != null} animationType="fade" transparent>
+        <View style={styles.detailModalWrap}>
+          <View style={styles.detailSheet}>
+            <Text style={styles.reportKicker}>CHI TIẾT BÁO CÁO</Text>
+            <Text style={styles.reportTitle}>{selectedReport?.category}</Text>
+            
+            <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 20 }}>
+              {selectedReport?.photoUri ? (
+                <Image source={{ uri: selectedReport.photoUri }} style={styles.detailThumb} />
+              ) : null}
+              
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Vị trí</Text>
+                <Text style={styles.detailValue}>{selectedReport?.location}</Text>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Mức độ ưu tiên</Text>
+                <Text style={[styles.detailValue, { color: '#FF5A5F', fontWeight: '700' }]}>{selectedReport?.priority}</Text>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Sự cố</Text>
+                <Text style={styles.detailValue}>{selectedReport?.issue}</Text>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Hành động đề xuất</Text>
+                <Text style={styles.detailValue}>{selectedReport?.suggestedAction}</Text>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>Tóm tắt</Text>
+                <Text style={styles.detailValue}>{selectedReport?.summary}</Text>
+              </View>
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              <Pressable 
+                style={[styles.discardButton, { flex: 1 }]} 
+                onPress={() => {
+                  const targetId = selectedReport?.id;
+                  setSelectedReport(null);
+                  if (targetId) {
+                    Alert.alert("Xác nhận", "Bạn có muốn xóa báo cáo này không?", [
+                      { text: "Hủy", style: "cancel" },
+                      { 
+                        text: "Xóa", 
+                        style: "destructive", 
+                        onPress: async () => {
+                          const updated = history.filter(item => item.id !== targetId);
+                          await AsyncStorage.setItem('@report_history', JSON.stringify(updated));
+                          setHistory(updated);
+                        } 
+                      }
+                    ]);
+                  }
+                }}
+              >
+                <Text style={{ color: '#FF5A5F', fontWeight: '700' }}>Xóa báo cáo này</Text>
+              </Pressable>
+              
+              <Pressable 
+                style={[styles.saveButton, { flex: 1 }]} 
+                onPress={() => setSelectedReport(null)}
+              >
+                <Text style={styles.saveLabel}>Quay lại</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {phase === 'analyzing' ? (
         <View style={styles.overlay} pointerEvents="auto">
@@ -534,7 +705,7 @@ export default function HomeScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -578,22 +749,14 @@ const styles = StyleSheet.create({
   topBar: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   appKicker: { color: '#F5C518', fontSize: 11, letterSpacing: 1.6, fontWeight: '700' },
   appTitle: { color: '#F4F7FB', fontSize: 22, fontWeight: '700' },
-  badge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(12, 18, 32, 0.82)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF5A5F' },
-  badgeLabel: { color: '#F4F7FB', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
   thumb: { position: 'absolute', right: 16, width: 72, height: 96, borderRadius: 10, borderWidth: 2, borderColor: '#F5C518' },
-  bottomPanel: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 16, backgroundColor: 'rgba(12, 18, 32, 0.92)', borderTopLeftRadius: 24, borderTopRightRadius: 24, gap: 12 },
+  bottomPanel: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 16, backgroundColor: 'rgba(12, 18, 32, 0.95)', borderTopLeftRadius: 24, borderTopRightRadius: 24, gap: 12 },
   statusText: { color: '#C5D0E0', fontSize: 13, lineHeight: 18 },
-  controlsRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
+  controlsRowCenter: { alignItems: 'center', paddingVertical: 4 },
   shutterWrap: { alignItems: 'center', gap: 6 },
   shutter: { width: 74, height: 74, borderRadius: 37, borderWidth: 4, borderColor: '#F4F7FB', alignItems: 'center', justifyContent: 'center' },
   shutterInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#F4F7FB' },
   shutterLabel: { color: '#F4F7FB', fontSize: 11, fontWeight: '700' },
-  holdButton: { flex: 1, height: 56, borderRadius: 16, backgroundColor: '#1C2740', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#31405F' },
-  holdButtonActive: { backgroundColor: '#5A1C22', borderColor: '#FF5A5F' },
-  holdLabel: { color: '#F4F7FB', fontSize: 16, fontWeight: '700' },
-  textModeButton: { alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: '#151C2C' },
-  textModeLabel: { color: '#F5C518', fontSize: 13, fontWeight: '700' },
   textRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
   textInput: { flex: 1, minHeight: 44, maxHeight: 90, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: '#F4F7FB', backgroundColor: '#151C2C' },
   submitChip: { height: 44, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#F5C518', alignItems: 'center', justifyContent: 'center' },
@@ -617,4 +780,8 @@ const styles = StyleSheet.create({
   saveLabel: { color: '#1A1403', fontWeight: '700' },
   pressed: { opacity: 0.85 },
   disabled: { opacity: 0.45 },
+  detailModalWrap: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(7, 11, 20, 0.85)', padding: 20 },
+  detailSheet: { backgroundColor: '#101826', borderRadius: 20, padding: 20, maxHeight: '85%', borderWidth: 1, borderColor: '#3A4763' },
+  detailThumb: { width: '100%', height: 180, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#3A4763' },
+  detailValue: { color: '#F4F7FB', fontSize: 15, backgroundColor: '#151C2C', padding: 12, borderRadius: 10 },
 });
