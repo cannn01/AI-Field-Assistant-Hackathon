@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { type ErrorBoundaryProps } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -18,7 +18,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
+import { GEMINI_API_KEY } from '../apiConfig';
 // --- TRANSLATIONS (BỘ TỪ ĐIỂN NGÔN NGỮ) ---
 type LangMode = 'en' | 'vi';
 
@@ -200,7 +200,6 @@ export default function HomeScreen() {
       analyzeTimerRef.current = null;
     }
   };
-
   const beginAnalysis = useCallback(
     async (capturedUri: string, capturedNotes: string) => {
       if (!capturedUri || !capturedNotes.trim()) return;
@@ -209,9 +208,6 @@ export default function HomeScreen() {
       setStatusMessage(t.analyzingTitle);
 
       try {
-        // Khởi tạo Gemini AI với API Key của bạn
-        const ai = new GoogleGenAI({ apiKey: process.env.EXPO_PUBLIC_GEMINI_API_KEY });
-        
         const promptText = `
           Bạn là một trợ lý AI chuyên nghiệp cho kỹ sư hiện trường.
           Hãy phân tích văn bản ghi chú sau và tạo ra một báo cáo có cấu trúc.
@@ -229,14 +225,26 @@ export default function HomeScreen() {
           }
         `;
 
-        // Gọi Gemini 3.8 Flash
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: promptText,
-        });
+        // Gọi trực tiếp API bằng HTTP request (Bypass lỗi thư viện)
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: promptText }] }],
+            }),
+          }
+        );
+
+        if (!response.ok) {
+           throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        let jsonText = result.candidates[0].content.parts[0].text || '';
+        
         // Xử lý chuỗi JSON trả về
-        let jsonText = response.text || '';
-        // Xóa bỏ các ký tự formatting markdown (```json ... ```) nếu có
         jsonText = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
         
         try {
@@ -244,13 +252,11 @@ export default function HomeScreen() {
             setReport(parsedReport);
         } catch (parseError) {
             console.error("Lỗi phân tích JSON từ AI:", parseError);
-            // Fallback nếu AI trả về lỗi định dạng
             setReport(buildMockReport(capturedNotes));
         }
 
       } catch (error) {
-        console.error("Lỗi khi gọi Gemini API:", error);
-        // Nếu mất mạng hoặc API lỗi, dùng báo cáo giả lập
+        console.error("Lỗi khi gọi Gemini API trực tiếp:", error);
         setReport(buildMockReport(capturedNotes));
       } finally {
         setPhase('report');
@@ -258,7 +264,6 @@ export default function HomeScreen() {
     },
     [t]
   );
-
   const takePhoto = async () => {
     if (!cameraReady || busy || phase !== 'capture') return;
     try {
