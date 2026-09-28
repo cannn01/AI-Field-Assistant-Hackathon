@@ -12,6 +12,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -159,7 +160,6 @@ export default function HomeScreen() {
   const [report, setReport] = useState<FieldReport | null>(null);
   const [statusMessage, setStatusMessage] = useState(t.statusInitial);
 
-  // Quản lý Lịch sử & Chi tiết & Chọn xóa nhiều mục
   const [history, setHistory] = useState<FieldReport[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [selectedReport, setSelectedReport] = useState<FieldReport | null>(null);
@@ -195,7 +195,7 @@ export default function HomeScreen() {
         setHistory(JSON.parse(storedData));
       }
     } catch (e) {
-      console.error("Lỗi tải lịch sử:", e);
+      console.log("Lỗi tải lịch sử:", e);
     }
   };
 
@@ -255,12 +255,11 @@ export default function HomeScreen() {
             const parsedReport = JSON.parse(jsonText);
             setReport(parsedReport);
         } catch (parseError) {
-            console.error("Lỗi phân tích JSON từ AI:", parseError);
             setReport(buildMockReport(capturedNotes));
         }
 
       } catch (error) {
-        console.error("Lỗi khi gọi Gemini API trực tiếp:", error);
+        console.log("Kích hoạt chế độ dự phòng do sự cố kết nối AI.");
         setReport(buildMockReport(capturedNotes));
       } finally {
         setPhase('report');
@@ -338,7 +337,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Hàm xóa một hoặc nhiều mục đã chọn trong lịch sử
   const deleteSelectedReports = async () => {
     if (selectedIds.length === 0) return;
 
@@ -379,6 +377,41 @@ export default function HomeScreen() {
       { text: t.alertKeep, style: 'cancel' },
       { text: t.btnDiscard, style: 'destructive', onPress: resetCapture },
     ]);
+  };
+
+  // Hàm Share & Export định dạng chuẩn Biên bản Word
+  const shareReport = async (reportData: FieldReport) => {
+    try {
+      const reportContent = `
+BIÊN BẢN KIỂM TRA HIỆN TRẠNG SỰ CỐ
+---------------------------------
+📍 Vị trí: ${reportData.location}
+🕒 Thời gian: ${reportData.createdAt || new Date().toLocaleString('vi-VN')}
+⚠️ Mức độ ưu tiên: ${reportData.priority}
+
+1. Phân loại sự cố:
+- ${reportData.category}
+
+2. Mô tả sự cố:
+- ${reportData.issue}
+
+3. Hành động đề xuất / Khắc phục:
+- ${reportData.suggestedAction}
+
+4. Tóm tắt:
+- ${reportData.summary}
+
+---------------------------------
+*Báo cáo được tạo tự động bởi AI Field Assistant*
+      `.trim();
+
+      await Share.share({
+        message: reportContent,
+        title: 'Báo cáo sự cố hiện trường',
+      });
+    } catch (error) {
+      console.log("Lỗi chia sẻ:", error);
+    }
   };
 
   const toggleLang = () => setLang(prev => prev === 'en' ? 'vi' : 'en');
@@ -423,9 +456,8 @@ export default function HomeScreen() {
         <View style={styles.cameraPlaceholder} />
       )}
 
-      <View style={styles.scrim} pointerEvents="none" />
+      <View style={[styles.scrim, { pointerEvents: 'none' as any }]} />
 
-      {/* TOP BAR */}
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <View>
           <Text style={styles.appKicker}>{t.fieldUtility}</Text>
@@ -445,7 +477,6 @@ export default function HomeScreen() {
         <Image source={{ uri: photoUri }} style={[styles.thumb, { top: insets.top + 64 }]} />
       ) : null}
 
-      {/* BOTTOM PANEL */}
       <View style={[styles.bottomPanel, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
         <Text style={styles.statusText}>{statusMessage}</Text>
 
@@ -483,7 +514,6 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* MODAL XEM DANH SÁCH LỊCH SỬ VÀ CHỌN XÓA */}
       <Modal visible={showHistory} animationType="slide">
         <View style={{ flex: 1, backgroundColor: '#070B14', paddingTop: 60, paddingHorizontal: 20 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -547,7 +577,6 @@ export default function HomeScreen() {
             )}
           </ScrollView>
 
-          {/* Thanh tác vụ khi ở chế độ chọn xóa */}
           {isSelectMode && selectedIds.length > 0 && (
             <Pressable 
               style={{ backgroundColor: '#FF5A5F', padding: 16, borderRadius: 14, alignItems: 'center', marginVertical: 10 }} 
@@ -570,7 +599,7 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* MODAL XEM CHI TIẾT MỘT BÁO CÁO */}
+      {/* MODAL XEM CHI TIẾT VÀ NÚT CHIA SẺ */}
       <Modal visible={selectedReport != null} animationType="fade" transparent>
         <View style={styles.detailModalWrap}>
           <View style={styles.detailSheet}>
@@ -605,6 +634,14 @@ export default function HomeScreen() {
             </ScrollView>
 
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              {/* NÚT CHIA SẺ VÀ XUẤT */}
+              <Pressable 
+                style={[styles.saveButton, { flex: 1.2, backgroundColor: '#4CC9F0' }]} 
+                onPress={() => shareReport(selectedReport!)}
+              >
+                <Text style={[styles.saveLabel, { color: '#0B132B' }]}>📤 Chia sẻ</Text>
+              </Pressable>
+
               <Pressable 
                 style={[styles.discardButton, { flex: 1 }]} 
                 onPress={() => {
@@ -626,14 +663,14 @@ export default function HomeScreen() {
                   }
                 }}
               >
-                <Text style={{ color: '#FF5A5F', fontWeight: '700' }}>Xóa báo cáo này</Text>
+                <Text style={{ color: '#FF5A5F', fontWeight: '700' }}>Xóa</Text>
               </Pressable>
               
               <Pressable 
                 style={[styles.saveButton, { flex: 1 }]} 
                 onPress={() => setSelectedReport(null)}
               >
-                <Text style={styles.saveLabel}>Quay lại</Text>
+                <Text style={styles.saveLabel}>Đóng</Text>
               </Pressable>
             </View>
           </View>
@@ -641,7 +678,7 @@ export default function HomeScreen() {
       </Modal>
 
       {phase === 'analyzing' ? (
-        <View style={styles.overlay} pointerEvents="auto">
+        <View style={[styles.overlay, { pointerEvents: 'auto' as any }]} >
           <ActivityIndicator color="#F5C518" size="large" />
           <Text style={styles.overlayTitle}>{t.analyzingTitle}</Text>
           <Text style={styles.overlayBody}>{t.analyzingBody}</Text>
