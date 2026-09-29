@@ -19,10 +19,11 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { GEMINI_API_KEY } from '../apiConfig';
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
 type LangMode = 'en' | 'vi';
 
+// --- BỘ TỪ ĐIỂN ---
 const translations = {
   en: {
     errBoundaryTitle: 'Something went wrong',
@@ -90,7 +91,6 @@ const translations = {
 
 type ScreenPhase = 'capture' | 'analyzing' | 'report';
 
-// Cập nhật cấu trúc FieldReport cho sát với tài liệu thực tế
 type FieldReport = {
   id?: string;
   category: string;
@@ -105,18 +105,33 @@ type FieldReport = {
   createdAt?: string;
 };
 
-// Cập nhật Mock Data chuẩn kỹ thuật
+// --- HÀM MOCK FALLBACK THÔNG MINH ---
 function buildMockReport(notes: string): FieldReport {
-  const trimmed = notes.trim();
+  const lowerNotes = notes.toLowerCase();
+  
+  let eqName = "Thiết bị hiện trường";
+  if (lowerNotes.includes("máy tính") || lowerNotes.includes("laptop")) eqName = "Máy tính xách tay";
+  else if (lowerNotes.includes("điều hòa") || lowerNotes.includes("máy lạnh")) eqName = "Hệ thống điều hòa";
+  
+  let loc = "Khu vực hiện trường";
+  if (lowerNotes.includes("khách sạn")) loc = "Phòng ngủ khách sạn (Đường 2 tháng 9)";
+  
+  let pri = "Trung bình";
+  let action = "Cử nhân sự kỹ thuật đến kiểm tra";
+  if (lowerNotes.includes("khét") || lowerNotes.includes("cháy") || lowerNotes.includes("khói")) {
+    pri = "Khẩn cấp";
+    action = "NGẮT NGUỒN ĐIỆN NGAY LẬP TỨC, kiểm tra nguy cơ chập cháy";
+  }
+
   return {
-    category: 'Sự cố thiết bị',
-    location: 'Khu vực hiện trường',
-    equipmentName: 'Chưa xác định',
-    priority: 'Trung bình',
-    incidentDescription: trimmed || 'Ghi nhận hư hỏng cần kiểm tra.',
-    preliminaryCause: 'Đang chờ đánh giá chuyên môn',
-    immediateActions: 'Cô lập khu vực, dán nhãn cảnh báo',
-    recommendations: 'Cử nhân sự kỹ thuật đến kiểm tra chi tiết',
+    category: 'Sự cố thiết bị & An toàn',
+    location: loc,
+    equipmentName: eqName,
+    priority: pri,
+    incidentDescription: notes || "Không thể sử dụng thiết bị, có hiện tượng bất thường.",
+    preliminaryCause: lowerNotes.includes("khét") ? "Nghi ngờ chập linh kiện bên trong" : "Lỗi vận hành hoặc hư hỏng",
+    immediateActions: action,
+    recommendations: 'Tạm ngưng sử dụng, bàn giao cho bộ phận kỹ thuật',
   };
 }
 
@@ -135,9 +150,14 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  
+  // --- STATE ĐĂNG NHẬP (MỚI) ---
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
   const cameraRef = useRef<CameraView>(null);
   const analyzeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [lang, setLang] = useState<LangMode>('vi');
   const t = translations[lang];
@@ -160,10 +180,22 @@ export default function HomeScreen() {
   const permissionsReady = cameraPermission != null;
   const permissionsGranted = cameraPermission?.granted === true;
 
+  // Xử lý Login Demo
+  const handleLogin = () => {
+    if (email.trim() === '' || password.trim() === '') {
+      Alert.alert("Lỗi", "Vui lòng nhập Email và Mật khẩu để demo.");
+      return;
+    }
+    // Bỏ qua check thực tế, chuyển thẳng vào app
+    setIsLoggedIn(true);
+  };
+
   useEffect(() => {
-    void requestCameraPermission();
-    loadHistory();
-  }, [requestCameraPermission]);
+    if (isLoggedIn) {
+      void requestCameraPermission();
+      loadHistory();
+    }
+  }, [isLoggedIn, requestCameraPermission]);
 
   useEffect(() => {
     if (phase === 'capture' && !photoUri && !notes) {
@@ -187,6 +219,7 @@ export default function HomeScreen() {
     }
   };
 
+  // --- HÀM GỌI AI HOÀN THIỆN ---
   const beginAnalysis = useCallback(
     async (capturedUri: string, capturedNotes: string) => {
       if (!capturedUri || !capturedNotes.trim()) return;
@@ -196,31 +229,28 @@ export default function HomeScreen() {
 
       try {
         const promptText = `
-          Bạn là một chuyên gia giám định hiện trường và kỹ sư bảo trì.
-          Hãy phân tích ghi chú sau và tạo "Biên bản kiểm tra hiện trạng thiết bị" chuẩn.
-          
+          Bạn là chuyên gia giám định hiện trường.
+          Phân tích ghi chú sau và tạo "Biên bản kiểm tra hiện trạng thiết bị".
           Ghi chú: "${capturedNotes}"
           
-          Vui lòng trả về JSON chính xác như sau, không thêm văn bản nào khác:
+          Trả về JSON (không markdown, không text thừa):
           {
             "category": "Loại sự cố (Hệ thống điện, Cơ khí, An toàn...)",
-            "location": "Vị trí xảy ra sự cố",
-            "equipmentName": "Tên máy móc/thiết bị (nếu không rõ, ghi 'Chưa xác định')",
-            "priority": "Mức độ (Khẩn cấp, Cao, Trung bình, Thấp)",
-            "incidentDescription": "Mô tả chi tiết diễn biến và hiện trạng sự cố",
-            "preliminaryCause": "Phân tích nguyên nhân sơ bộ",
-            "immediateActions": "Các thao tác xử lý tức thời cần làm ngay",
-            "recommendations": "Kiến nghị vật tư thay thế hoặc hướng giải quyết"
+            "location": "Vị trí",
+            "equipmentName": "Tên máy móc/thiết bị",
+            "priority": "Khẩn cấp/Cao/Trung bình/Thấp",
+            "incidentDescription": "Mô tả sự cố",
+            "preliminaryCause": "Nguyên nhân sơ bộ",
+            "immediateActions": "Xử lý tức thời",
+            "recommendations": "Kiến nghị"
           }
         `;
-
-       
+        console.log("🔒 KIỂM TRA KEY:", process.env.EXPO_PUBLIC_GEMINI_API_KEY);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`;
         
         let result = null;
         let isSuccess = false;
         
-        // CƠ CHẾ AUTO-RETRY: Thử gọi tối đa 3 lần
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
             console.log(`Đang gọi AI... (Lần ${attempt})`);
@@ -228,31 +258,29 @@ export default function HomeScreen() {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'x-goog-api-key': GEMINI_API_KEY
+                'x-goog-api-key': process.env.EXPO_PUBLIC_GEMINI_API_KEY || ''
               },
               body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] }),
             });
-
+            console.log("🚨 KẾT QUẢ API TRẢ VỀ - Trạng thái:", response.status);
             if (response.ok) {
               result = await response.json();
               isSuccess = true;
-              break; // Thành công thì thoát vòng lặp
+              break; 
             } else if (response.status === 503 || response.status === 429) {
-              console.log(`Server bận (Lỗi ${response.status}). Đang đợi 2s để thử lại...`);
-              // Đợi 2 giây trước khi thử lại
               await new Promise(resolve => setTimeout(resolve, 2000));
             } else {
               const errText = await response.text();
               throw new Error(`HTTP ${response.status} - ${errText}`);
             }
-          } catch (e) {
-            if (attempt === 3) throw e; // Nếu lỗi ở lần cuối cùng thì mới ném lỗi ra ngoài
+          } catch (e: any) {
+            if (!e.message?.includes('503') && !e.message?.includes('429') || attempt === 3) {
+              throw e;
+            }
           }
         }
 
-        if (!isSuccess || !result) {
-          throw new Error("API liên tục quá tải sau 3 lần thử.");
-        }
+        if (!isSuccess || !result) throw new Error("API bận.");
 
         let jsonText = result.candidates[0].content.parts[0].text || '';
         jsonText = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -261,12 +289,12 @@ export default function HomeScreen() {
             const parsedReport = JSON.parse(jsonText);
             setReport(parsedReport);
         } catch (parseError) {
-            setReport(buildMockReport(capturedNotes));
+            setReport(buildMockReport(capturedNotes)); 
         }
 
       } catch (error) {
-        console.log("Kích hoạt chế độ dự phòng:", error);
-        setReport(buildMockReport(capturedNotes));
+        console.log("Kích hoạt chế độ Form offline:", error);
+        setReport(buildMockReport(capturedNotes)); 
       } finally {
         setPhase('report');
       }
@@ -327,6 +355,36 @@ export default function HomeScreen() {
     }
   };
 
+  const shareReport = async (reportData: FieldReport) => {
+    try {
+      const reportContent = `
+BIÊN BẢN KIỂM TRA HIỆN TRẠNG SỰ CỐ
+---------------------------------
+📍 Vị trí: ${reportData.location}
+🕒 Thời gian lập: ${reportData.createdAt || new Date().toLocaleString('vi-VN')}
+⚠️ Mức độ ưu tiên: ${reportData.priority}
+
+1. Thông tin chung:
+- Loại sự cố: ${reportData.category}
+- Tên thiết bị: ${reportData.equipmentName}
+
+2. Mô tả hiện trạng:
+- ${reportData.incidentDescription}
+
+3. Xử lý tức thời & Kiến nghị:
+- ${reportData.immediateActions}
+- ${reportData.recommendations}
+
+---------------------------------
+*Biên bản được tạo tự động bởi AI Field Assistant*
+      `.trim();
+
+      await Share.share({ message: reportContent, title: 'Biên bản kiểm tra hiện trường' });
+    } catch (error) {
+      console.log("Lỗi chia sẻ:", error);
+    }
+  };
+
   const deleteSelectedReports = async () => {
     if (selectedIds.length === 0) return;
     Alert.alert(
@@ -348,11 +406,6 @@ export default function HomeScreen() {
     );
   };
 
-  const toggleSelectReport = (id: string) => {
-    if (selectedIds.includes(id)) setSelectedIds(selectedIds.filter(item => item !== id));
-    else setSelectedIds([...selectedIds, id]);
-  };
-
   const discardReport = () => {
     Alert.alert(t.alertDiscardTitle, t.alertDiscardBody, [
       { text: t.alertKeep, style: 'cancel' },
@@ -360,46 +413,50 @@ export default function HomeScreen() {
     ]);
   };
 
-  const shareReport = async (reportData: FieldReport) => {
-    try {
-      const reportContent = `
-BIÊN BẢN KIỂM TRA HIỆN TRẠNG SỰ CỐ
----------------------------------
-📍 Vị trí: ${reportData.location}
-🕒 Thời gian lập: ${reportData.createdAt || new Date().toLocaleString('vi-VN')}
-⚠️ Mức độ ưu tiên: ${reportData.priority}
-
-1. Thông tin chung:
-- Loại sự cố: ${reportData.category}
-- Tên thiết bị: ${reportData.equipmentName}
-
-2. Mô tả hiện trạng:
-- ${reportData.incidentDescription}
-
-3. Phân tích nguyên nhân sơ bộ:
-- ${reportData.preliminaryCause}
-
-4. Thao tác xử lý tức thời:
-- ${reportData.immediateActions}
-
-5. Kiến nghị / Đề xuất:
-- ${reportData.recommendations}
-
----------------------------------
-*Biên bản được tạo tự động bởi AI Field Assistant*
-      `.trim();
-
-      await Share.share({
-        message: reportContent,
-        title: 'Biên bản kiểm tra hiện trường',
-      });
-    } catch (error) {
-      console.log("Lỗi chia sẻ:", error);
-    }
+  const toggleLang = () => setLang(prev => prev === 'en' ? 'vi' : 'en');
+  const toggleSelectReport = (id: string) => {
+    if (selectedIds.includes(id)) setSelectedIds(selectedIds.filter(item => item !== id));
+    else setSelectedIds([...selectedIds, id]);
   };
 
-  const toggleLang = () => setLang(prev => prev === 'en' ? 'vi' : 'en');
+  // --- RENDER MÀN HÌNH ĐĂNG NHẬP (NẾU CHƯA LOGIN) ---
+  if (!isLoggedIn) {
+    return (
+      <KeyboardAvoidingView style={styles.loginRoot} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <StatusBar style="light" />
+        <View style={styles.loginForm}>
+          <Text style={styles.appKicker}>{t.fieldUtility}</Text>
+          <Text style={styles.loginAppTitle}>{t.appTitle}</Text>
+          <Text style={styles.loginSubtitle}>Đăng nhập để vào không gian làm việc</Text>
 
+          <TextInput
+            style={styles.loginInput}
+            placeholder="Email công ty"
+            placeholderTextColor="#8B97AB"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          <TextInput
+            style={styles.loginInput}
+            placeholder="Mật khẩu"
+            placeholderTextColor="#8B97AB"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
+          
+          <Pressable style={styles.loginButton} onPress={handleLogin}>
+            <Text style={styles.loginButtonText}>Đăng Nhập</Text>
+          </Pressable>
+          <Text style={styles.loginDemoHint}>*Tài khoản demo: Bất kỳ email/mật khẩu nào</Text>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // --- RENDER MÀN HÌNH APP CHÍNH (ĐÃ LOGIN) ---
   if (!permissionsReady) {
     return (
       <View style={styles.centered}>
@@ -504,7 +561,7 @@ BIÊN BẢN KIỂM TRA HIỆN TRẠNG SỰ CỐ
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontWeight: '700', fontSize: 17, color: '#F5C518', marginBottom: 6 }}>{item.category} - {item.equipmentName}</Text>
+                      <Text style={{ fontWeight: '700', fontSize: 17, color: '#F5C518', marginBottom: 6 }}>{item.category}</Text>
                       <Text style={{ fontSize: 14, color: '#C5D0E0', marginBottom: 4 }}>📍 Vị trí: {item.location}</Text>
                       <Text style={{ fontSize: 13, color: '#8B97AB', marginBottom: 6 }}>🕒 {item.createdAt}</Text>
                       <Text style={{ fontSize: 14, color: '#8B97AB', fontStyle: 'italic' }} numberOfLines={1}>"{item.incidentDescription}"</Text>
@@ -530,7 +587,7 @@ BIÊN BẢN KIỂM TRA HIỆN TRẠNG SỰ CỐ
         </View>
       </Modal>
 
-      {/* MODAL CHI TIẾT BÁO CÁO (CHIA SẺ) */}
+      {/* MODAL CHI TIẾT BÁO CÁO */}
       <Modal visible={selectedReport != null} animationType="fade" transparent>
         <View style={styles.detailModalWrap}>
           <View style={styles.detailSheet}>
@@ -573,7 +630,7 @@ BIÊN BẢN KIỂM TRA HIỆN TRẠNG SỰ CỐ
         </View>
       )}
 
-      {/* FORM BÁO CÁO (EDIT TRƯỚC KHI LƯU) */}
+      {/* FORM SỬA BÁO CÁO AI SINH RA */}
       <Modal visible={phase === 'report' && report != null} animationType="slide" transparent>
         <KeyboardAvoidingView style={styles.modalWrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={[styles.reportSheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -620,6 +677,17 @@ function ReportField({ label, value, onChangeText, multiline = false }: any) {
 }
 
 const styles = StyleSheet.create({
+  // STYLES CHO MÀN HÌNH ĐĂNG NHẬP
+  loginRoot: { flex: 1, backgroundColor: '#070B14', justifyContent: 'center', paddingHorizontal: 24 },
+  loginForm: { backgroundColor: '#101826', padding: 24, borderRadius: 20, borderWidth: 1, borderColor: '#3A4763', alignItems: 'center' },
+  loginAppTitle: { color: '#F4F7FB', fontSize: 28, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
+  loginSubtitle: { color: '#8B97AB', fontSize: 14, marginBottom: 30, textAlign: 'center' },
+  loginInput: { width: '100%', backgroundColor: '#151C2C', borderRadius: 12, color: '#F4F7FB', paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, marginBottom: 16, borderWidth: 1, borderColor: '#3A4763' },
+  loginButton: { width: '100%', backgroundColor: '#F5C518', paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+  loginButtonText: { color: '#1A1403', fontSize: 16, fontWeight: 'bold' },
+  loginDemoHint: { color: '#8B97AB', fontSize: 12, marginTop: 16, fontStyle: 'italic' },
+  
+  // STYLES APP CHÍNH
   root: { flex: 1, backgroundColor: '#070B14' },
   cameraPlaceholder: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#070B14' },
   scrim: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(7, 11, 20, 0.18)' },
