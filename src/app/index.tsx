@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  ImageBackground,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -422,36 +423,44 @@ BIÊN BẢN KIỂM TRA HIỆN TRẠNG SỰ CỐ
   // --- RENDER MÀN HÌNH ĐĂNG NHẬP (NẾU CHƯA LOGIN) ---
   if (!isLoggedIn) {
     return (
-      <KeyboardAvoidingView style={styles.loginRoot} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <StatusBar style="light" />
-        <View style={styles.loginForm}>
-          <Text style={styles.appKicker}>{t.fieldUtility}</Text>
-          <Text style={styles.loginAppTitle}>{t.appTitle}</Text>
-          <Text style={styles.loginSubtitle}>Đăng nhập để vào không gian làm việc</Text>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ImageBackground 
+          source={require('../../assets/images/splash-icon.png')} 
+          style={{ flex: 1 }}
+          resizeMode="cover"
+        >
+          <View style={[styles.loginRoot, { backgroundColor: 'rgba(7, 11, 20, 0.75)' }]}>
+            <StatusBar style="light" />
+            <View style={styles.loginForm}>
+              <Text style={styles.appKicker}>{t.fieldUtility}</Text>
+              <Text style={styles.loginAppTitle}>{t.appTitle}</Text>
+              <Text style={styles.loginSubtitle}>Đăng nhập để vào không gian làm việc</Text>
 
-          <TextInput
-            style={styles.loginInput}
-            placeholder="Email công ty"
-            placeholderTextColor="#8B97AB"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <TextInput
-            style={styles.loginInput}
-            placeholder="Mật khẩu"
-            placeholderTextColor="#8B97AB"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-          
-          <Pressable style={styles.loginButton} onPress={handleLogin}>
-            <Text style={styles.loginButtonText}>Đăng Nhập</Text>
-          </Pressable>
-          <Text style={styles.loginDemoHint}>*Tài khoản demo: Bất kỳ email/mật khẩu nào</Text>
-        </View>
+              <TextInput
+                style={styles.loginInput}
+                placeholder="Email công ty"
+                placeholderTextColor="#8B97AB"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <TextInput
+                style={styles.loginInput}
+                placeholder="Mật khẩu"
+                placeholderTextColor="#8B97AB"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+              />
+
+              <Pressable style={styles.loginButton} onPress={handleLogin}>
+                <Text style={styles.loginButtonText}>Đăng Nhập</Text>
+              </Pressable>
+              <Text style={styles.loginDemoHint}>*Tài khoản demo: Bất kỳ email/mật khẩu nào</Text>
+            </View>
+          </View>
+        </ImageBackground>
       </KeyboardAvoidingView>
     );
   }
